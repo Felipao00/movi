@@ -2,10 +2,11 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { getCurrentUser } from '@/lib/auth';
 import { Container } from '@/components/ui/Container';
-import { Camera, ArrowLeft } from 'lucide-react';
+import { Camera, ArrowLeft, Sparkles, ChevronRight } from 'lucide-react';
 
 export default function PerfilPage() {
   const router = useRouter();
@@ -106,6 +107,19 @@ export default function PerfilPage() {
               <label className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center cursor-pointer shadow-lg"><Camera className="w-4 h-4" /><input type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" /></label>
             </div>
           </div>
+
+          {/* Link Minhas Molduras */}
+          <Link href="/dashboard/molduras" className="w-full flex items-center gap-3 p-4 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 transition-all mb-6">
+            <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
+              <Sparkles className="w-5 h-5 text-purple-500" />
+            </div>
+            <div className="flex-1 text-left">
+              <p className="text-gray-900 text-sm font-medium">Minhas Molduras</p>
+              <p className="text-gray-400 text-xs">Gerencie suas molduras de avatar</p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-300" />
+          </Link>
+
           <div className="space-y-5">
             <div><label className="text-gray-500 text-xs font-medium block mb-2">Nome completo</label><input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Seu nome" className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-gray-900 placeholder:text-gray-300 text-sm focus:outline-none focus:border-gray-900" /></div>
             <div><label className="text-gray-500 text-xs font-medium block mb-2">Nome de usuário</label><input type="text" value={username} onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''))} placeholder="@seuuser" className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 text-gray-900 placeholder:text-gray-300 text-sm focus:outline-none focus:border-gray-900" /></div>

@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Container } from '@/components/ui/Container';
-import { Camera, Home, User, Compass, Heart, X, ImagePlus } from 'lucide-react';
+import { Camera, Home, User, Compass, Heart, X, ImagePlus, Bell } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { getCurrentUser } from '@/lib/auth';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -25,11 +25,19 @@ export default function HomePage() {
   const [uploading, setUploading] = useState(false);
   const [showTip, setShowTip] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => { initApp(); }, []);
   useEffect(() => { if (currentUser && photos.length > 0) loadLikes(); }, [currentUser, photos]);
+  useEffect(() => { if (currentUser) loadUnreadCount(); }, [currentUser]);
 
   const initApp = async () => { setChecking(true); await checkUser(); await loadFeed(); setChecking(false); };
+
+  const loadUnreadCount = async () => {
+    if (!currentUser) return;
+    const { count } = await supabase.from('notifications').select('*', { count: 'exact' }).eq('user_id', currentUser.id).eq('read', false);
+    setUnreadCount(count || 0);
+  };
 
   const checkUser = async () => {
     const user = await getCurrentUser();
@@ -80,27 +88,12 @@ export default function HomePage() {
     setUploadFile(null); setUploadPreview(null); setUploadTitle(''); setUploading(false); setShowUpload(false); loadFeed();
   };
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await loadFeed();
-    setRefreshing(false);
-  };
-
-  // Touch handlers para pull-to-refresh
+  const handleRefresh = async () => { setRefreshing(true); await loadFeed(); setRefreshing(false); };
   const touchStartY = React.useRef(0);
   const [pullDistance, setPullDistance] = useState(0);
-
   const handleTouchStart = (e: React.TouchEvent) => { if (window.scrollY === 0) touchStartY.current = e.touches[0].clientY; };
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (touchStartY.current > 0) {
-      const distance = e.touches[0].clientY - touchStartY.current;
-      if (distance > 0 && distance < 100) setPullDistance(distance);
-    }
-  };
-  const handleTouchEnd = () => {
-    if (pullDistance > 60) handleRefresh();
-    touchStartY.current = 0; setPullDistance(0);
-  };
+  const handleTouchMove = (e: React.TouchEvent) => { if (touchStartY.current > 0) { const distance = e.touches[0].clientY - touchStartY.current; if (distance > 0 && distance < 100) setPullDistance(distance); } };
+  const handleTouchEnd = () => { if (pullDistance > 60) handleRefresh(); touchStartY.current = 0; setPullDistance(0); };
 
   if (checking) return (<div className="min-h-screen bg-[#FAFAFA] flex items-center justify-center"><div className="w-8 h-8 border-2 border-gray-200 border-t-gray-800 rounded-full animate-spin" /></div>);
 
@@ -117,20 +110,25 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-[#FAFAFA]" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
-      <header className="fixed top-0 left-0 right-0 z-20 bg-[#FAFAFA]/90 backdrop-blur-xl border-b border-gray-200"><Container><div className="flex items-center justify-center h-14"><span className="font-signature text-4xl text-gray-900">Movi</span></div></Container></header>
+      <header className="fixed top-0 left-0 right-0 z-20 bg-[#FAFAFA]/90 backdrop-blur-xl border-b border-gray-200">
+        <Container>
+          <div className="flex items-center justify-between h-14">
+            <div className="w-8" />
+            <span className="font-signature text-4xl text-gray-900">Movi</span>
+            <Link href="/notificacoes" className="p-2 -mr-2 text-gray-500 hover:text-gray-900 relative" onClick={() => setUnreadCount(0)}>
+              <Bell className="w-6 h-6" strokeWidth={2} />
+              {unreadCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </Link>
+          </div>
+        </Container>
+      </header>
 
-      {/* Indicador de pull to refresh */}
-      {pullDistance > 30 && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-30">
-          <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-800 rounded-full animate-spin" style={{ opacity: Math.min(pullDistance / 60, 1) }} />
-        </div>
-      )}
-
-      {refreshing && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-30">
-          <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-800 rounded-full animate-spin" />
-        </div>
-      )}
+      {pullDistance > 30 && (<div className="fixed top-16 left-1/2 -translate-x-1/2 z-30"><div className="w-8 h-8 border-2 border-gray-300 border-t-gray-800 rounded-full animate-spin" style={{ opacity: Math.min(pullDistance / 60, 1) }} /></div>)}
+      {refreshing && (<div className="fixed top-16 left-1/2 -translate-x-1/2 z-30"><div className="w-8 h-8 border-2 border-gray-300 border-t-gray-800 rounded-full animate-spin" /></div>)}
 
       <main className="pt-16 pb-24">
         <Container>
