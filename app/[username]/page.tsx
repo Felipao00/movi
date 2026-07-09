@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { getCurrentUser } from '@/lib/auth';
 import { Container } from '@/components/ui/Container';
-import { Camera, ArrowLeft, Settings, Grid3X3, Home, Compass, User, Heart, X, Shield, MoreHorizontal, Pin, Trash2, Edit3, BarChart3 } from 'lucide-react';
+import { Camera, ArrowLeft, Settings, Grid3X3, Home, Compass, User, Heart, X, Shield, MoreHorizontal, Pin, Trash2, Edit3 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const framesConfig: Record<string, { gradient: string; animation: string }> = {
