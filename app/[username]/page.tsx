@@ -45,6 +45,7 @@ export default function PublicProfilePage() {
   const [likes, setLikes] = useState<Record<string, number>>({});
   const [userLikes, setUserLikes] = useState<Record<string, boolean>>({});
   const [showVerifiedInfo, setShowVerifiedInfo] = useState(false);
+  const [showAvatarPreview, setShowAvatarPreview] = useState(false);
   const [menuPhoto, setMenuPhoto] = useState<any>(null);
   const [editTitle, setEditTitle] = useState('');
   const [showEditModal, setShowEditModal] = useState(false);
@@ -53,8 +54,6 @@ export default function PublicProfilePage() {
   const [refreshing, setRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
   const touchStartY = React.useRef(0);
-  const [showAvatarPreview, setShowAvatarPreview] = useState(false);
-  const avatarPressTimer = React.useRef<any>(null);
 
   useEffect(() => { loadProfile(); checkUser(); }, [username]);
   useEffect(() => { const closeMenu = () => setMenuPhoto(null); if (menuPhoto) { document.addEventListener('click', closeMenu); return () => document.removeEventListener('click', closeMenu); } }, [menuPhoto]);
@@ -81,9 +80,6 @@ export default function PublicProfilePage() {
   const handleTouchMove = (e: React.TouchEvent) => { if (touchStartY.current > 0) { const distance = e.touches[0].clientY - touchStartY.current; if (distance > 0 && distance < 100) setPullDistance(distance); } };
   const handleTouchEnd = () => { if (pullDistance > 60) handleRefresh(); touchStartY.current = 0; setPullDistance(0); };
 
-  const handleAvatarPressStart = () => { avatarPressTimer.current = setTimeout(() => setShowAvatarPreview(true), 500); };
-  const handleAvatarPressEnd = () => { if (avatarPressTimer.current) { clearTimeout(avatarPressTimer.current); } };
-
   const handleLike = async (photoId: string) => { if (!currentUser) { router.push('/login'); return; } const isLiked = userLikes[photoId]; if (isLiked) { await supabase.from('likes').delete().eq('user_id', currentUser.id).eq('photo_id', photoId); setLikes(prev => ({ ...prev, [photoId]: Math.max(0, (prev[photoId] || 1) - 1) })); setUserLikes(prev => ({ ...prev, [photoId]: false })); } else { await supabase.from('likes').insert({ user_id: currentUser.id, photo_id: photoId }); setLikes(prev => ({ ...prev, [photoId]: (prev[photoId] || 0) + 1 })); setUserLikes(prev => ({ ...prev, [photoId]: true })); if (currentUser.id !== profile.id) { await supabase.from('notifications').insert({ user_id: profile.id, from_user_id: currentUser.id, type: 'like', photo_id: photoId }); } } };
   const handleFollow = async () => { const user = await getCurrentUser(); if (!user) { router.push('/login'); return; } if (isFollowing) { await supabase.from('follows').delete().eq('follower_id', user.id).eq('following_id', profile.id); setIsFollowing(false); setFollowersCount(followersCount - 1); } else { await supabase.from('follows').insert({ follower_id: user.id, following_id: profile.id }); setIsFollowing(true); setFollowersCount(followersCount + 1); await supabase.from('notifications').insert({ user_id: profile.id, from_user_id: user.id, type: 'follow' }); } };
   const handlePin = async (photo: any) => { await supabase.from('photos').update({ pinned: !photo.pinned }).eq('id', photo.id); setMenuPhoto(null); loadProfile(); };
@@ -108,15 +104,36 @@ export default function PublicProfilePage() {
       <main className="pb-24">
         <Container size="small">
           <div className="py-8 text-center">
-            <div className="cursor-pointer" onTouchStart={handleAvatarPressStart} onTouchEnd={handleAvatarPressEnd} onTouchMove={handleAvatarPressEnd} onMouseDown={handleAvatarPressStart} onMouseUp={handleAvatarPressEnd} onMouseLeave={handleAvatarPressEnd}>
+            {/* AVATAR */}
+            <div>
               {frameConfig ? (
-                <div className="relative inline-block mx-auto mb-4"><div className={`absolute -inset-[3px] rounded-full ${frameConfig.gradient} ${frameConfig.animation} opacity-70`} /><div className="absolute -inset-[1px] rounded-full bg-white" /><div className="relative w-24 h-24 rounded-full overflow-hidden bg-gray-100 border-2 border-white">{profile.avatar_url ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-4xl font-bold">{profile.full_name?.charAt(0) || '?'}</div>}</div></div>
+                <div className="relative inline-block mx-auto mb-4">
+                  <div className={`absolute -inset-[3px] rounded-full ${frameConfig.gradient} ${frameConfig.animation} opacity-70`} />
+                  <div className="absolute -inset-[1px] rounded-full bg-white" />
+                  <div className="relative w-24 h-24 rounded-full overflow-hidden bg-gray-100 border-2 border-white cursor-pointer" onClick={() => setShowAvatarPreview(true)}>
+                    {profile.avatar_url ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-4xl font-bold">{profile.full_name?.charAt(0) || '?'}</div>}
+                  </div>
+                </div>
               ) : profile.verified && profile.username === 'lipe' ? (
-                <div className="relative inline-block mx-auto mb-4"><div className="absolute -inset-[3px] rounded-full bg-gradient-conic from-amber-400 via-black to-amber-400 animate-spin-slow opacity-70" /><div className="absolute -inset-[1px] rounded-full bg-white" /><div className="relative w-24 h-24 rounded-full overflow-hidden bg-gray-100 border-2 border-white">{profile.avatar_url ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-4xl font-bold">{profile.full_name?.charAt(0) || '?'}</div>}</div></div>
+                <div className="relative inline-block mx-auto mb-4">
+                  <div className="absolute -inset-[3px] rounded-full bg-gradient-conic from-amber-400 via-black to-amber-400 animate-spin-slow opacity-70" />
+                  <div className="absolute -inset-[1px] rounded-full bg-white" />
+                  <div className="relative w-24 h-24 rounded-full overflow-hidden bg-gray-100 border-2 border-white cursor-pointer" onClick={() => setShowAvatarPreview(true)}>
+                    {profile.avatar_url ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-4xl font-bold">{profile.full_name?.charAt(0) || '?'}</div>}
+                  </div>
+                </div>
               ) : profile.verified ? (
-                <div className="w-[104px] h-[104px] rounded-full bg-gradient-to-r from-blue-400 to-blue-500 p-[3px] mx-auto mb-4"><div className="w-full h-full rounded-full bg-white p-[2px]"><div className="w-full h-full rounded-full overflow-hidden bg-gray-100">{profile.avatar_url ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-4xl font-bold">{profile.full_name?.charAt(0) || '?'}</div>}</div></div></div>
+                <div className="w-[104px] h-[104px] rounded-full bg-gradient-to-r from-blue-400 to-blue-500 p-[3px] mx-auto mb-4">
+                  <div className="w-full h-full rounded-full bg-white p-[2px]">
+                    <div className="w-full h-full rounded-full overflow-hidden bg-gray-100 cursor-pointer" onClick={() => setShowAvatarPreview(true)}>
+                      {profile.avatar_url ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-4xl font-bold">{profile.full_name?.charAt(0) || '?'}</div>}
+                    </div>
+                  </div>
+                </div>
               ) : (
-                <div className="w-24 h-24 rounded-full bg-gray-100 border-2 border-gray-200 overflow-hidden mx-auto mb-4">{profile.avatar_url ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-4xl font-bold">{profile.full_name?.charAt(0) || '?'}</div>}</div>
+                <div className="w-24 h-24 rounded-full bg-gray-100 border-2 border-gray-200 overflow-hidden mx-auto mb-4 cursor-pointer" onClick={() => setShowAvatarPreview(true)}>
+                  {profile.avatar_url ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-4xl font-bold">{profile.full_name?.charAt(0) || '?'}</div>}
+                </div>
               )}
             </div>
 
@@ -153,7 +170,18 @@ export default function PublicProfilePage() {
         </Container>
       </main>
 
-      <AnimatePresence>{showAvatarPreview && (<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] bg-black/80 flex flex-col items-center justify-center p-4" onClick={() => setShowAvatarPreview(false)} onTouchEnd={() => setShowAvatarPreview(false)}><motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} exit={{ scale: 0.8 }} className="w-72 h-72 rounded-full overflow-hidden shadow-2xl">{profile.avatar_url ? <img src={profile.avatar_url} alt={profile.full_name} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-gray-200 flex items-center justify-center text-8xl font-bold text-gray-400">{profile.full_name?.charAt(0) || '?'}</div>}</motion.div><p className="mt-6 text-white text-lg font-semibold">{profile.full_name}</p><p className="text-white/60 text-sm">@{profile.username}</p></motion.div>)}</AnimatePresence>
+      {/* Preview do Avatar - CLIQUE SIMPLES */}
+      <AnimatePresence>
+        {showAvatarPreview && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] bg-black/80 flex flex-col items-center justify-center p-4" onClick={() => setShowAvatarPreview(false)}>
+            <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} exit={{ scale: 0.8 }} className="w-72 h-72 rounded-full overflow-hidden shadow-2xl">
+              {profile.avatar_url ? <img src={profile.avatar_url} alt={profile.full_name} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-gray-200 flex items-center justify-center text-8xl font-bold text-gray-400">{profile.full_name?.charAt(0) || '?'}</div>}
+            </motion.div>
+            <p className="mt-6 text-white text-lg font-semibold">{profile.full_name}</p>
+            <p className="text-white/60 text-sm">@{profile.username}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>{selectedPhoto && (<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-black flex flex-col" onClick={() => setSelectedPhoto(null)}><div className="flex items-center justify-between p-4 text-white flex-shrink-0"><button onClick={() => setSelectedPhoto(null)} className="p-1"><X className="w-6 h-6" /></button><Link href={`/${profile.username}`} className="flex items-center gap-2" onClick={() => setSelectedPhoto(null)}><div className="w-8 h-8 rounded-full bg-white/20 overflow-hidden">{profile.avatar_url ? <img src={profile.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-white text-xs font-bold">{profile.full_name?.charAt(0)}</div>}</div><span className="text-sm font-medium">{profile.username}</span></Link>{isOwner && <button onClick={() => { setShowEditModal(true); setEditTitle(selectedPhoto.title || ''); }} className="p-1"><Edit3 className="w-5 h-5" /></button>}</div><div className="flex-1 flex items-center justify-center overflow-auto">{selectedPhoto.image_url ? <img src={selectedPhoto.image_url} alt={selectedPhoto.title} className="max-w-full max-h-full object-contain" /> : <p className="text-white text-lg px-8 text-center">{selectedPhoto.title}</p>}</div><div className="p-4 text-white flex-shrink-0"><div className="flex items-center gap-4 mb-3"><button onClick={() => handleLike(selectedPhoto.id)} className="flex items-center gap-1.5"><Heart className={`w-7 h-7 transition-all ${userLikes[selectedPhoto.id] ? 'fill-red-500 text-red-500' : 'text-white'}`} /></button></div><p className="text-sm font-medium">{likes[selectedPhoto.id] || 0} curtida{(likes[selectedPhoto.id] || 0) !== 1 ? 's' : ''}</p>{selectedPhoto.title && <p className="text-sm mt-1"><span className="font-medium">{profile.username}</span> {selectedPhoto.title}</p>}</div></motion.div>)}</AnimatePresence>
 

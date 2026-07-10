@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Container } from '@/components/ui/Container';
-import { Camera, Home, User, Compass, Heart, X, ImagePlus, Bell } from 'lucide-react';
+import { Camera, Home, User, Compass, Heart, X, ImagePlus, Bell, Play } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { getCurrentUser } from '@/lib/auth';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -152,7 +152,23 @@ export default function HomePage() {
 
       <AnimatePresence>{showUpload && (<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] bg-[#FAFAFA] flex flex-col"><div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 flex-shrink-0"><button onClick={() => { setShowUpload(false); setUploadPreview(null); setUploadTitle(''); }} className="p-2 -ml-2 text-gray-500 hover:text-gray-900"><X className="w-5 h-5" /></button><span className="text-base font-semibold text-gray-900">Nova publicação</span><button onClick={handlePublish} disabled={(!uploadFile && !uploadTitle.trim()) || uploading} className="px-4 py-1.5 rounded-full bg-gray-900 text-white text-sm font-medium disabled:opacity-30 transition-all">{uploading ? '...' : 'Publicar'}</button></div><div className="flex-1 flex flex-col"><textarea value={uploadTitle} onChange={(e) => setUploadTitle(e.target.value)} placeholder="O que você quer compartilhar?" className="flex-1 w-full px-5 py-4 bg-transparent text-gray-900 placeholder:text-gray-400 text-lg resize-none focus:outline-none" autoFocus />{uploadPreview && (<div className="relative px-4 pb-4"><div className="relative rounded-2xl overflow-hidden"><img src={uploadPreview} alt="Preview" className="w-full max-h-80 object-cover" /><button onClick={() => { setUploadPreview(null); setUploadFile(null); }} className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center"><X className="w-4 h-4" /></button></div></div>)}</div><div className="flex items-center gap-2 px-4 py-3 border-t border-gray-200 flex-shrink-0"><label className="p-2.5 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all cursor-pointer"><ImagePlus className="w-5 h-5" /><input type="file" accept="image/*" onChange={handleFileSelect} className="hidden" /></label><label className="p-2.5 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all cursor-pointer"><Camera className="w-5 h-5" /><input type="file" accept="image/*" capture="environment" onChange={handleFileSelect} className="hidden" /></label>{!uploadPreview && !uploadTitle.trim() && <p className="text-gray-400 text-xs ml-1">Adicione uma foto ou escreva algo</p>}</div></motion.div>)}</AnimatePresence>
 
-      <div className="lg:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[88%] max-w-sm"><nav className="bg-white/90 backdrop-blur-2xl border border-gray-200/50 rounded-3xl px-2 py-2.5 shadow-2xl shadow-black/5"><div className="flex items-center justify-around"><Link href="/" className="p-2.5 rounded-2xl text-gray-900 bg-gray-100"><Home className="w-6 h-6" strokeWidth={2.5} /></Link><Link href="/explorar" className="p-2.5 rounded-2xl text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition-all"><Compass className="w-6 h-6" strokeWidth={2} /></Link>{userProfile ? (<Link href={`/${userProfile.username}`} className="p-2.5 rounded-2xl"><div className="w-6 h-6 rounded-full overflow-hidden ring-2 ring-gray-300">{userProfile.avatar_url ? <img src={userProfile.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-[10px] font-bold bg-gray-100">{userProfile.full_name?.charAt(0)}</div>}</div></Link>) : (<Link href="/login" className="p-2.5 rounded-2xl text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition-all"><User className="w-6 h-6" strokeWidth={2} /></Link>)}</div></nav></div>
+      {/* NAVBAR COM 4 ÍCONES */}
+      <div className="lg:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[88%] max-w-sm">
+        <nav className="bg-white/90 backdrop-blur-2xl border border-gray-200/50 rounded-3xl px-2 py-2.5 shadow-2xl shadow-black/5">
+          <div className="flex items-center justify-around">
+            <Link href="/" className="p-2.5 rounded-2xl text-gray-900 bg-gray-100"><Home className="w-6 h-6" strokeWidth={2.5} /></Link>
+            <Link href="/moments" className="p-2.5 rounded-2xl text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition-all"><Play className="w-6 h-6" strokeWidth={2} /></Link>
+            <Link href="/explorar" className="p-2.5 rounded-2xl text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition-all"><Compass className="w-6 h-6" strokeWidth={2} /></Link>
+            {userProfile ? (
+              <Link href={`/${userProfile.username}`} className="p-2.5 rounded-2xl">
+                <div className="w-6 h-6 rounded-full overflow-hidden ring-2 ring-gray-300">{userProfile.avatar_url ? <img src={userProfile.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-[10px] font-bold bg-gray-100">{userProfile.full_name?.charAt(0)}</div>}</div>
+              </Link>
+            ) : (
+              <Link href="/login" className="p-2.5 rounded-2xl text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition-all"><User className="w-6 h-6" strokeWidth={2} /></Link>
+            )}
+          </div>
+        </nav>
+      </div>
     </div>
   );
 }

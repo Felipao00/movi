@@ -46,14 +46,7 @@ export default function ExplorarPage() {
       .order('created_at', { ascending: false })
       .limit(20);
 
-    const { data: photos } = await supabase.from('photos').select('user_id');
-
-    const usersWithCount = profiles?.map(profile => ({
-      ...profile,
-      photoCount: photos?.filter(p => p.user_id === profile.id).length || 0,
-    })) || [];
-
-    setUsers(usersWithCount);
+    setUsers(profiles || []);
     setLoading(false);
   };
 
@@ -100,7 +93,7 @@ export default function ExplorarPage() {
               <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center mb-4">
                 <Users className="w-10 h-10 opacity-30" />
               </div>
-              <p className="text-base font-medium text-gray-500">Pesquise por pessoas</p>
+              <p className="text-base font-medium text-gray-500">Faça uma pesquisa</p>
               <p className="text-sm mt-1 text-center max-w-xs">
                 Encontre perfis pelo nome ou @usuário
               </p>
@@ -124,7 +117,7 @@ export default function ExplorarPage() {
                 <Link
                   key={user.id}
                   href={`/${user.username}`}
-                  className="flex items-center gap-4 p-4 rounded-2xl bg-white border border-gray-200 hover:bg-gray-50 transition-all"
+                  className="flex items-center gap-4 p-4 rounded-2xl hover:bg-gray-50 transition-all"
                 >
                   <div className="w-12 h-12 rounded-full bg-gray-100 overflow-hidden flex-shrink-0">
                     {user.avatar_url ? (
@@ -146,7 +139,6 @@ export default function ExplorarPage() {
                       )}
                     </div>
                     <p className="text-gray-400 text-xs">@{user.username}</p>
-                    <p className="text-gray-400 text-xs mt-0.5">{user.photoCount} foto{user.photoCount !== 1 ? 's' : ''}</p>
                   </div>
                 </Link>
               ))}
@@ -155,7 +147,6 @@ export default function ExplorarPage() {
         </Container>
       </main>
 
-      {/* Navbar */}
       <div className="lg:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[88%] max-w-sm">
         <nav className="bg-white/90 backdrop-blur-2xl border border-gray-200/50 rounded-3xl px-2 py-2.5 shadow-2xl shadow-black/5">
           <div className="flex items-center justify-around">
