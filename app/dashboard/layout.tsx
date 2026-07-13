@@ -51,7 +51,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </main>
 
       {/* Navbar mobile inferior */}
-      <MobileNav profile={profile} />
+      <MobileNav />
     </div>
   );
 }

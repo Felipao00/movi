@@ -2,13 +2,15 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { Container } from '@/components/ui/Container';
-import { Camera, Home, User, Compass, Heart, X, ImagePlus, Bell, Play } from 'lucide-react';
+import { Camera, Home, User, Compass, Heart, X, ImagePlus, Bell, Search, Trophy } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { getCurrentUser } from '@/lib/auth';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function HomePage() {
+  const pathname = usePathname();
   const [photos, setPhotos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(true);
@@ -24,7 +26,6 @@ export default function HomePage() {
   const [uploadTitle, setUploadTitle] = useState('');
   const [uploading, setUploading] = useState(false);
   const [showTip, setShowTip] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => { initApp(); }, []);
@@ -32,12 +33,7 @@ export default function HomePage() {
   useEffect(() => { if (currentUser) loadUnreadCount(); }, [currentUser]);
 
   const initApp = async () => { setChecking(true); await checkUser(); await loadFeed(); setChecking(false); };
-
-  const loadUnreadCount = async () => {
-    if (!currentUser) return;
-    const { count } = await supabase.from('notifications').select('*', { count: 'exact' }).eq('user_id', currentUser.id).eq('read', false);
-    setUnreadCount(count || 0);
-  };
+  const loadUnreadCount = async () => { if (!currentUser) return; const { count } = await supabase.from('notifications').select('*', { count: 'exact' }).eq('user_id', currentUser.id).eq('read', false); setUnreadCount(count || 0); };
 
   const checkUser = async () => {
     const user = await getCurrentUser();
@@ -47,53 +43,21 @@ export default function HomePage() {
       setUserProfile(profile);
       const { data: follows } = await supabase.from('follows').select('following_id').eq('follower_id', user.id);
       if (follows) setFollowingUsers(new Set(follows.map(f => f.following_id)));
-      if (profile?.onboarding_done && typeof window !== 'undefined') {
-        if (!localStorage.getItem('movi_tip_shown')) { setShowTip(true); localStorage.setItem('movi_tip_shown', 'true'); }
-      }
+      if (profile?.onboarding_done && typeof window !== 'undefined') { if (!localStorage.getItem('movi_tip_shown')) { setShowTip(true); localStorage.setItem('movi_tip_shown', 'true'); } }
     }
   };
 
   const loadFeed = async () => {
     try {
       const { data } = await supabase.from('photos').select(`id, title, image_url, created_at, user_id, profiles:user_id (id, username, full_name, avatar_url)`).order('created_at', { ascending: false }).limit(100);
-      if (data) {
-        const photosWithLikes = await Promise.all(data.map(async (photo) => { const { count } = await supabase.from('likes').select('*', { count: 'exact' }).eq('photo_id', photo.id); return { ...photo, likes_count: count || 0 }; }));
-        const sorted = photosWithLikes.sort((a, b) => { const now = Date.now(); const dayAgo = now - 86400000; const scoreA = (followingUsers.has(a.user_id) ? 15 : 0) + (a.likes_count * 2) + (new Date(a.created_at).getTime() > dayAgo ? 2 : 0) + Math.random() * 2; const scoreB = (followingUsers.has(b.user_id) ? 15 : 0) + (b.likes_count * 2) + (new Date(b.created_at).getTime() > dayAgo ? 2 : 0) + Math.random() * 2; return scoreB - scoreA; });
-        setPhotos(sorted.slice(0, 50));
-      }
+      if (data) { const photosWithLikes = await Promise.all(data.map(async (photo) => { const { count } = await supabase.from('likes').select('*', { count: 'exact' }).eq('photo_id', photo.id); return { ...photo, likes_count: count || 0 }; })); const sorted = photosWithLikes.sort((a, b) => { const now = Date.now(); const dayAgo = now - 86400000; const scoreA = (followingUsers.has(a.user_id) ? 15 : 0) + (a.likes_count * 2) + (new Date(a.created_at).getTime() > dayAgo ? 2 : 0) + Math.random() * 2; const scoreB = (followingUsers.has(b.user_id) ? 15 : 0) + (b.likes_count * 2) + (new Date(b.created_at).getTime() > dayAgo ? 2 : 0) + Math.random() * 2; return scoreB - scoreA; }); setPhotos(sorted.slice(0, 50)); }
     } catch (err) { console.error('Erro:', err); } finally { setLoading(false); }
   };
 
-  const loadLikes = async () => {
-    if (!currentUser) return;
-    const likesMap: Record<string, number> = {}; const userLikesMap: Record<string, boolean> = {};
-    for (const photo of photos) { const { count } = await supabase.from('likes').select('*', { count: 'exact' }).eq('photo_id', photo.id); likesMap[photo.id] = count || 0; const { data: like } = await supabase.from('likes').select('*').eq('user_id', currentUser.id).eq('photo_id', photo.id).single(); userLikesMap[photo.id] = !!like; }
-    setLikes(likesMap); setUserLikes(userLikesMap);
-  };
-
-  const handleLike = async (photoId: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation(); if (!currentUser) return;
-    const isLiked = userLikes[photoId];
-    if (isLiked) { await supabase.from('likes').delete().eq('user_id', currentUser.id).eq('photo_id', photoId); setLikes(prev => ({ ...prev, [photoId]: Math.max(0, (prev[photoId] || 1) - 1) })); setUserLikes(prev => ({ ...prev, [photoId]: false })); }
-    else { await supabase.from('likes').insert({ user_id: currentUser.id, photo_id: photoId }); setLikes(prev => ({ ...prev, [photoId]: (prev[photoId] || 0) + 1 })); setUserLikes(prev => ({ ...prev, [photoId]: true })); const photo = photos.find(p => p.id === photoId); if (photo && currentUser.id !== photo.user_id) { await supabase.from('notifications').insert({ user_id: photo.user_id, from_user_id: currentUser.id, type: 'like', photo_id: photoId }); } }
-  };
-
+  const loadLikes = async () => { if (!currentUser) return; const likesMap: Record<string, number> = {}; const userLikesMap: Record<string, boolean> = {}; for (const photo of photos) { const { count } = await supabase.from('likes').select('*', { count: 'exact' }).eq('photo_id', photo.id); likesMap[photo.id] = count || 0; const { data: like } = await supabase.from('likes').select('*').eq('user_id', currentUser.id).eq('photo_id', photo.id).single(); userLikesMap[photo.id] = !!like; } setLikes(likesMap); setUserLikes(userLikesMap); };
+  const handleLike = async (photoId: string, e?: React.MouseEvent) => { if (e) e.stopPropagation(); if (!currentUser) return; const isLiked = userLikes[photoId]; if (isLiked) { await supabase.from('likes').delete().eq('user_id', currentUser.id).eq('photo_id', photoId); setLikes(prev => ({ ...prev, [photoId]: Math.max(0, (prev[photoId] || 1) - 1) })); setUserLikes(prev => ({ ...prev, [photoId]: false })); } else { await supabase.from('likes').insert({ user_id: currentUser.id, photo_id: photoId }); setLikes(prev => ({ ...prev, [photoId]: (prev[photoId] || 0) + 1 })); setUserLikes(prev => ({ ...prev, [photoId]: true })); const photo = photos.find(p => p.id === photoId); if (photo && currentUser.id !== photo.user_id) { await supabase.from('notifications').insert({ user_id: photo.user_id, from_user_id: currentUser.id, type: 'like', photo_id: photoId }); } } };
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) { setUploadFile(file); const reader = new FileReader(); reader.onload = (ev) => setUploadPreview(ev.target?.result as string); reader.readAsDataURL(file); } };
-
-  const handlePublish = async () => {
-    if (!currentUser) return; if (!uploadFile && !uploadTitle.trim()) return;
-    setUploading(true); let imageUrl = '';
-    if (uploadFile) { const fileName = `${currentUser.id}/${Date.now()}-${uploadFile.name}`; await supabase.storage.from('uploads').upload(fileName, uploadFile); const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(fileName); imageUrl = urlData.publicUrl; }
-    await supabase.from('photos').insert({ user_id: currentUser.id, title: uploadTitle.trim(), image_url: imageUrl || '' });
-    setUploadFile(null); setUploadPreview(null); setUploadTitle(''); setUploading(false); setShowUpload(false); loadFeed();
-  };
-
-  const handleRefresh = async () => { setRefreshing(true); await loadFeed(); setRefreshing(false); };
-  const touchStartY = React.useRef(0);
-  const [pullDistance, setPullDistance] = useState(0);
-  const handleTouchStart = (e: React.TouchEvent) => { if (window.scrollY === 0) touchStartY.current = e.touches[0].clientY; };
-  const handleTouchMove = (e: React.TouchEvent) => { if (touchStartY.current > 0) { const distance = e.touches[0].clientY - touchStartY.current; if (distance > 0 && distance < 100) setPullDistance(distance); } };
-  const handleTouchEnd = () => { if (pullDistance > 60) handleRefresh(); touchStartY.current = 0; setPullDistance(0); };
+  const handlePublish = async () => { if (!currentUser) return; if (!uploadFile && !uploadTitle.trim()) return; setUploading(true); let imageUrl = ''; if (uploadFile) { const fileName = `${currentUser.id}/${Date.now()}-${uploadFile.name}`; await supabase.storage.from('uploads').upload(fileName, uploadFile); const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(fileName); imageUrl = urlData.publicUrl; } await supabase.from('photos').insert({ user_id: currentUser.id, title: uploadTitle.trim(), image_url: imageUrl || '' }); setUploadFile(null); setUploadPreview(null); setUploadTitle(''); setUploading(false); setShowUpload(false); loadFeed(); };
 
   if (checking) return (<div className="min-h-screen bg-[#FAFAFA] flex items-center justify-center"><div className="w-8 h-8 border-2 border-gray-200 border-t-gray-800 rounded-full animate-spin" /></div>);
 
@@ -109,28 +73,28 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FAFAFA]" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
+    <div className="min-h-screen bg-[#FAFAFA]">
       <header className="fixed top-0 left-0 right-0 z-20 bg-[#FAFAFA]/90 backdrop-blur-xl border-b border-gray-200">
         <Container>
           <div className="flex items-center justify-between h-14">
             <div className="w-8" />
             <span className="font-signature text-4xl text-gray-900">Movi</span>
-            <Link href="/notificacoes" className="p-2 -mr-2 text-gray-500 hover:text-gray-900 relative" onClick={() => setUnreadCount(0)}>
-              <Bell className="w-6 h-6" strokeWidth={2} />
-              {unreadCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
+            <div className="flex items-center gap-1">
+              <Link href="/notificacoes" className="p-2 text-gray-500 hover:text-gray-900 relative">
+                <Bell className="w-6 h-6" strokeWidth={2} />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{unreadCount > 9 ? '9+' : unreadCount}</span>
+                )}
+              </Link>
+              {userProfile && (
+                <Link href={`/${userProfile.username}`} className="p-1.5"><div className="w-8 h-8 rounded-full overflow-hidden ring-2 ring-gray-200">{userProfile.avatar_url ? <img src={userProfile.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full bg-gray-100 flex items-center justify-center text-gray-400 text-xs font-bold">{userProfile.full_name?.charAt(0) || '?'}</div>}</div></Link>
               )}
-            </Link>
+            </div>
           </div>
         </Container>
       </header>
 
-      {pullDistance > 30 && (<div className="fixed top-16 left-1/2 -translate-x-1/2 z-30"><div className="w-8 h-8 border-2 border-gray-300 border-t-gray-800 rounded-full animate-spin" style={{ opacity: Math.min(pullDistance / 60, 1) }} /></div>)}
-      {refreshing && (<div className="fixed top-16 left-1/2 -translate-x-1/2 z-30"><div className="w-8 h-8 border-2 border-gray-300 border-t-gray-800 rounded-full animate-spin" /></div>)}
-
-      <main className="pt-16 pb-24">
+      <main className="pt-16 pb-20">
         <Container>
           {loading ? (<div className="flex items-center justify-center min-h-[60vh]"><div className="w-8 h-8 border-2 border-gray-200 border-t-gray-800 rounded-full animate-spin" /></div>) : photos.length === 0 ? (<div className="flex items-center justify-center min-h-[60vh]"><div className="text-center"><Camera className="w-16 h-16 text-gray-300 mx-auto mb-4" /><h1 className="text-2xl font-display text-gray-900 mb-2">Nenhuma foto ainda</h1><p className="text-gray-500 mb-6">Seja o primeiro a compartilhar</p></div></div>) : (
             <div className="columns-2 sm:columns-3 lg:columns-4 gap-2 space-y-2">
@@ -144,30 +108,24 @@ export default function HomePage() {
         </Container>
       </main>
 
-      <AnimatePresence>{showTip && (<motion.div initial={{ opacity: 0, y: 20, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="fixed bottom-40 right-5 z-50 bg-gray-900 text-white px-4 py-3 rounded-2xl shadow-2xl text-sm max-w-[180px]"><p className="font-medium">📸 Toque aqui para publicar sua primeira foto!</p><div className="absolute -bottom-1.5 right-5 w-3 h-3 bg-gray-900 rotate-45" /><button onClick={() => setShowTip(false)} className="absolute -top-1.5 -right-1.5 w-6 h-6 bg-white rounded-full flex items-center justify-center shadow-md"><X className="w-3.5 h-3.5 text-gray-900" /></button></motion.div>)}</AnimatePresence>
+      <button onClick={() => { setShowUpload(true); setShowTip(false); }} className="fixed bottom-20 right-5 z-40 w-14 h-14 rounded-full bg-gray-900/80 backdrop-blur-sm text-white shadow-xl flex items-center justify-center hover:bg-gray-900 hover:scale-105 active:scale-95 transition-all lg:hidden border border-white/10"><ImagePlus className="w-7 h-7" strokeWidth={2} /></button>
 
-      <button onClick={() => { setShowUpload(true); setShowTip(false); }} className="fixed bottom-24 right-5 z-40 w-14 h-14 rounded-full bg-gray-900/80 backdrop-blur-sm text-white shadow-xl flex items-center justify-center hover:bg-gray-900 hover:scale-105 active:scale-95 transition-all lg:hidden border border-white/10"><ImagePlus className="w-7 h-7" strokeWidth={2} /></button>
+      <AnimatePresence>{showTip && (<motion.div initial={{ opacity: 0, y: 20, scale: 0.9 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="fixed bottom-32 right-5 z-50 bg-gray-900 text-white px-4 py-3 rounded-2xl shadow-2xl text-sm max-w-[180px]"><p className="font-medium">📸 Toque aqui para publicar sua primeira foto!</p><div className="absolute -bottom-1.5 right-5 w-3 h-3 bg-gray-900 rotate-45" /><button onClick={() => setShowTip(false)} className="absolute -top-1.5 -right-1.5 w-6 h-6 bg-white rounded-full flex items-center justify-center shadow-md"><X className="w-3.5 h-3.5 text-gray-900" /></button></motion.div>)}</AnimatePresence>
 
       <AnimatePresence>{selectedPhoto && (<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-black flex flex-col" onClick={() => setSelectedPhoto(null)}><div className="flex items-center justify-between p-4 text-white flex-shrink-0"><button onClick={() => setSelectedPhoto(null)} className="p-1"><X className="w-6 h-6" /></button><Link href={`/${selectedPhoto.profiles?.username}`} className="flex items-center gap-2" onClick={() => setSelectedPhoto(null)}><div className="w-8 h-8 rounded-full bg-white/20 overflow-hidden">{selectedPhoto.profiles?.avatar_url ? <img src={selectedPhoto.profiles.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-white text-xs font-bold">{selectedPhoto.profiles?.full_name?.charAt(0)}</div>}</div><span className="text-sm font-medium">{selectedPhoto.profiles?.username}</span></Link><div className="w-8" /></div><div className="flex-1 flex items-center justify-center overflow-auto">{selectedPhoto.image_url ? <img src={selectedPhoto.image_url} alt={selectedPhoto.title || ''} className="max-w-full max-h-full object-contain" /> : <p className="text-white text-lg px-8 text-center">{selectedPhoto.title}</p>}</div><div className="p-4 text-white flex-shrink-0"><div className="flex items-center gap-4 mb-3"><button onClick={(e) => handleLike(selectedPhoto.id, e)} className="flex items-center gap-1.5"><Heart className={`w-7 h-7 transition-all ${userLikes[selectedPhoto.id] ? 'fill-red-500 text-red-500' : 'text-white'}`} /></button></div><p className="text-sm font-medium">{likes[selectedPhoto.id] || 0} curtida{(likes[selectedPhoto.id] || 0) !== 1 ? 's' : ''}</p>{selectedPhoto.title && <p className="text-sm mt-1"><Link href={`/${selectedPhoto.profiles?.username}`} className="font-medium" onClick={() => setSelectedPhoto(null)}>{selectedPhoto.profiles?.username}</Link> {selectedPhoto.title}</p>}</div></motion.div>)}</AnimatePresence>
 
       <AnimatePresence>{showUpload && (<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] bg-[#FAFAFA] flex flex-col"><div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 flex-shrink-0"><button onClick={() => { setShowUpload(false); setUploadPreview(null); setUploadTitle(''); }} className="p-2 -ml-2 text-gray-500 hover:text-gray-900"><X className="w-5 h-5" /></button><span className="text-base font-semibold text-gray-900">Nova publicação</span><button onClick={handlePublish} disabled={(!uploadFile && !uploadTitle.trim()) || uploading} className="px-4 py-1.5 rounded-full bg-gray-900 text-white text-sm font-medium disabled:opacity-30 transition-all">{uploading ? '...' : 'Publicar'}</button></div><div className="flex-1 flex flex-col"><textarea value={uploadTitle} onChange={(e) => setUploadTitle(e.target.value)} placeholder="O que você quer compartilhar?" className="flex-1 w-full px-5 py-4 bg-transparent text-gray-900 placeholder:text-gray-400 text-lg resize-none focus:outline-none" autoFocus />{uploadPreview && (<div className="relative px-4 pb-4"><div className="relative rounded-2xl overflow-hidden"><img src={uploadPreview} alt="Preview" className="w-full max-h-80 object-cover" /><button onClick={() => { setUploadPreview(null); setUploadFile(null); }} className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center"><X className="w-4 h-4" /></button></div></div>)}</div><div className="flex items-center gap-2 px-4 py-3 border-t border-gray-200 flex-shrink-0"><label className="p-2.5 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all cursor-pointer"><ImagePlus className="w-5 h-5" /><input type="file" accept="image/*" onChange={handleFileSelect} className="hidden" /></label><label className="p-2.5 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all cursor-pointer"><Camera className="w-5 h-5" /><input type="file" accept="image/*" capture="environment" onChange={handleFileSelect} className="hidden" /></label>{!uploadPreview && !uploadTitle.trim() && <p className="text-gray-400 text-xs ml-1">Adicione uma foto ou escreva algo</p>}</div></motion.div>)}</AnimatePresence>
 
-      {/* NAVBAR COM 4 ÍCONES */}
-      <div className="lg:hidden fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[88%] max-w-sm">
-        <nav className="bg-white/90 backdrop-blur-2xl border border-gray-200/50 rounded-3xl px-2 py-2.5 shadow-2xl shadow-black/5">
-          <div className="flex items-center justify-around">
-            <Link href="/" className="p-2.5 rounded-2xl text-gray-900 bg-gray-100"><Home className="w-6 h-6" strokeWidth={2.5} /></Link>
-            <Link href="/moments" className="p-2.5 rounded-2xl text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition-all"><Play className="w-6 h-6" strokeWidth={2} /></Link>
-            <Link href="/explorar" className="p-2.5 rounded-2xl text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition-all"><Compass className="w-6 h-6" strokeWidth={2} /></Link>
-            {userProfile ? (
-              <Link href={`/${userProfile.username}`} className="p-2.5 rounded-2xl">
-                <div className="w-6 h-6 rounded-full overflow-hidden ring-2 ring-gray-300">{userProfile.avatar_url ? <img src={userProfile.avatar_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-[10px] font-bold bg-gray-100">{userProfile.full_name?.charAt(0)}</div>}</div>
-              </Link>
-            ) : (
-              <Link href="/login" className="p-2.5 rounded-2xl text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition-all"><User className="w-6 h-6" strokeWidth={2} /></Link>
-            )}
-          </div>
-        </nav>
+      {/* NAVBAR FIXA - 4 ÍCONES */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#FAFAFA] border-t border-gray-200">
+        <div className="flex items-center justify-around py-2.5">
+          <Link href="/" className={`p-2 ${pathname === '/' ? 'text-gray-900' : 'text-gray-400'}`}><Home className="w-6 h-6" strokeWidth={pathname === '/' ? 2.5 : 2} /></Link>
+          <Link href="/moments" className={`p-2 ${pathname === '/moments' ? 'text-gray-900' : 'text-gray-400'}`}>
+            <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={pathname === '/moments' ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="16" rx="4"/><circle cx="12" cy="13" r="3"/><circle cx="18" cy="9" r="1.5"/><path d="M8 5V3h8v2"/></svg>
+          </Link>
+          <Link href="/ranking" className={`p-2 ${pathname === '/ranking' ? 'text-gray-900' : 'text-gray-400'}`}><Trophy className="w-6 h-6" strokeWidth={pathname === '/ranking' ? 2.5 : 2} /></Link>
+          <Link href="/explorar" className={`p-2 ${pathname === '/explorar' ? 'text-gray-900' : 'text-gray-400'}`}><Search className="w-6 h-6" strokeWidth={pathname === '/explorar' ? 2.5 : 2} /></Link>
+        </div>
       </div>
     </div>
   );
