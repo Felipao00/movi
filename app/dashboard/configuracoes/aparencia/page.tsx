@@ -80,7 +80,7 @@ export default function AparenciaPage() {
                   <Sun className="w-5 h-5 text-gray-400" />
                   <div>
                     <p className="text-gray-900 text-sm font-medium">Modo Claro</p>
-                    <p className="text-gray-400 text-xs">Visual limpo e brilhante para ambientes bem iluminados</p>
+                    <p className="text-gray-400 text-xs">Visual limpo e brilhante para environments bem iluminados</p>
                   </div>
                 </div>
                 {tema === 'light' && <Check className="w-4 h-4 text-black" />}

@@ -72,15 +72,34 @@ export default function ArmazenamentoPage() {
     }
   };
 
-  const limparCacheApp = () => {
+  // REAL: Deleta os caches armazenados no navegador pelo app
+  const limparCacheApp = async () => {
     setLimpandoCache(true);
     setCacheLimpo(false);
     
-    setTimeout(() => {
-      setLimpandoCache(false);
-      setCacheLimpo(true);
-      setTimeout(() => setCacheLimpo(false), 3000);
-    }, 1200);
+    try {
+      // Verifica se o navegador suporta a Caches API
+      if ('caches' in window) {
+        const cacheNames = await caches.keys();
+        // Deleta todas as storages de cache encontradas (imagens estáticas, prefetchings do Next, etc.)
+        await Promise.all(
+          cacheNames.map(cacheName => caches.delete(cacheName))
+        );
+      }
+      
+      // Opcional: Limpa lixos rápidos do localStorage que não sejam a sessão de login
+      // Se tiver estados temporários de conversas guardados no localStorage, pode limpá-los aqui
+      
+    } catch (error) {
+      console.error('Erro ao limpar cache do navegador:', error);
+    } finally {
+      // Mantém um micro delay pro usuário ver o feedback visual de progresso antes do sucesso
+      setTimeout(() => {
+        setLimpandoCache(false);
+        setCacheLimpo(true);
+        setTimeout(() => setCacheLimpo(false), 3000);
+      }, 800);
+    }
   };
 
   if (loading) {

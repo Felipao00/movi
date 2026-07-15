@@ -42,6 +42,7 @@ export default function PublicProfilePage() {
   
   const [isOwner, setIsOwner] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [isFollowerOfMe, setIsFollowerOfMe] = useState(false); // Armazena se este perfil segue o usuário logado
   const [followStatus, setFollowStatus] = useState<string | null>(null); // 'aprovado', 'pendente' ou null
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
@@ -106,22 +107,46 @@ export default function PublicProfilePage() {
         if (user?.id === profileData.id) {
           setIsOwner(true);
         } else if (user) {
+          // 1. Verifica se VOCÊ segue o perfil que está visitando
           const { data: follow } = await supabase.from('follows').select('*').eq('follower_id', user.id).eq('following_id', profileData.id).single();
           
           if (follow) {
             setFollowStatus(follow.status);
-            setIsFollowing(follow.status === 'aprovado');
+            setIsFollowing(follow.status === 'aprovado' || follow.status === null || follow.status === '');
           } else {
             setFollowStatus(null);
             setIsFollowing(false);
           }
+
+          // 2. Verifica se este perfil segue VOCÊ de volta
+          const { data: heFollowsMe } = await supabase
+            .from('follows')
+            .select('*')
+            .eq('follower_id', profileData.id)
+            .eq('following_id', user.id)
+            .neq('status', 'pendente')
+            .single();
+
+          setIsFollowerOfMe(!!heFollowsMe);
         }
       }
 
-      const { count: followers } = await supabase.from('follows').select('*', { count: 'exact' }).eq('following_id', profileData.id).eq('status', 'aprovado'); 
+      const followersQuery = supabase.from('follows').select('*', { count: 'exact' }).eq('following_id', profileData.id);
+      if (profileData.is_private) {
+        followersQuery.eq('status', 'aprovado');
+      } else {
+        followersQuery.neq('status', 'pendente');
+      }
+      const { count: followers } = await followersQuery;
       setFollowersCount(followers || 0);
       
-      const { count: following } = await supabase.from('follows').select('*', { count: 'exact' }).eq('follower_id', profileData.id).eq('status', 'aprovado'); 
+      const followingQuery = supabase.from('follows').select('*', { count: 'exact' }).eq('follower_id', profileData.id);
+      if (profileData.is_private) {
+        followingQuery.eq('status', 'aprovado');
+      } else {
+        followingQuery.neq('status', 'pendente');
+      }
+      const { count: following } = await followingQuery;
       setFollowingCount(following || 0);
     }
   };
@@ -155,15 +180,13 @@ export default function PublicProfilePage() {
     if (!user) { router.push('/login'); return; } 
     
     if (followStatus) { 
-      // Remove a relação (deixar de seguir ou cancelar solicitação pendente)
       await supabase.from('follows').delete().eq('follower_id', user.id).eq('following_id', profile.id); 
       setFollowStatus(null);
-      if (isFollowing) {
+      if (isFollowing || followStatus === 'aprovado') {
         setIsFollowing(false); 
         setFollowersCount(Math.max(0, followersCount - 1)); 
       }
     } else { 
-      // Cria a solicitação ou segue direto dependendo da privacidade do perfil
       const initialStatus = profile.is_private ? 'pendente' : 'aprovado';
       await supabase.from('follows').insert({ follower_id: user.id, following_id: profile.id, status: initialStatus }); 
       
@@ -173,7 +196,6 @@ export default function PublicProfilePage() {
         setFollowersCount(followersCount + 1); 
         await supabase.from('notifications').insert({ user_id: profile.id, from_user_id: user.id, type: 'follow' }); 
       } else {
-        // Notificação de solicitação de amizade/seguida pendente
         await supabase.from('notifications').insert({ user_id: profile.id, from_user_id: user.id, type: 'solicitacao_seguir' });
       }
     } 
@@ -245,6 +267,7 @@ export default function PublicProfilePage() {
                   strokeLinecap="round" 
                   strokeLinejoin="round"
                 >
+                  <title>Perfil Privado</title>
                   <rect x="5" y="9" width="14" height="13" rx="2" />
                   <path d="M8 9V6a4 4 0 0 1 8 0v3" />
                 </svg>
@@ -303,7 +326,6 @@ export default function PublicProfilePage() {
               <Link href={`/${profile.username}/seguindo`} className="text-center hover:opacity-80 transition-opacity"><p className="text-lg font-bold text-gray-900">{followingCount}</p><p className="text-gray-500 text-xs">seguindo</p></Link>
             </div>
             
-            {/* BOTÃO DE SOLICITAR OU SEGUIR NO LUGAR CERTO */}
             <div className="flex justify-center w-full max-w-xs px-4 mx-auto">
               {isOwner ? (
                 <div className="flex gap-2 w-full justify-center">
@@ -317,7 +339,6 @@ export default function PublicProfilePage() {
               ) : (
                 <div className="w-full flex justify-center">
                   {profile.is_private && !isFollowing ? (
-                    /* Botão dinâmico de Solicitar ou Pendente no topo */
                     <button
                       onClick={handleFollowAction}
                       className={`w-full max-w-[200px] py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-1.5 ${
@@ -341,12 +362,11 @@ export default function PublicProfilePage() {
                             <line x1="19" y1="8" x2="19" y2="14" />
                             <line x1="22" y1="11" x2="16" y2="11" />
                           </svg>
-                          <span>Solicitar</span>
+                          <span>{isFollowerOfMe ? 'Seguir de volta' : 'Solicitar'}</span>
                         </>
                       )}
                     </button>
                   ) : (
-                    /* Botão Seguir Normal (para perfis públicos ou seguidos aprovados) */
                     <button 
                       onClick={handleFollowAction} 
                       className={`w-full max-w-[200px] py-2 rounded-lg text-sm font-semibold transition-all ${
@@ -355,7 +375,11 @@ export default function PublicProfilePage() {
                           : 'bg-gray-900 text-white hover:bg-gray-800'
                       }`}
                     >
-                      {isFollowing ? 'Seguindo' : 'Seguir'}
+                      {isFollowing 
+                        ? 'Seguindo' 
+                        : isFollowerOfMe 
+                          ? 'Seguir de volta' 
+                          : 'Seguir'}
                     </button>
                   )}
                 </div>
