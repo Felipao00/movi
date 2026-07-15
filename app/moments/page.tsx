@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import { Container } from '@/components/ui/Container';
 import { supabase } from '@/lib/supabase';
 import { getCurrentUser } from '@/lib/auth';
-import { Home, Search, Heart, MessageCircle, Repeat2, Share, Bell, Sparkles } from 'lucide-react';
+import { Home, Search, Trophy, Heart, MessageCircle, Repeat2, Share, Bell, Sparkles } from 'lucide-react';
 
 const categories = ['Todos', 'Inspirador', 'Relevantes', 'Humor', 'Natureza', 'Arte'];
 
@@ -33,8 +33,41 @@ export default function MomentsPage() {
   };
 
   const loadMoments = async () => {
-    const { data } = await supabase.from('photos').select(`id, title, image_url, created_at, user_id, profiles:user_id (id, username, full_name, avatar_url, verified)`).order('created_at', { ascending: false }).limit(40);
-    setMoments(data || []); setLoading(false);
+    const { data } = await supabase
+      .from('photos')
+      .select(`id, title, image_url, created_at, user_id, profiles:user_id (id, username, full_name, avatar_url, verified)`)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (data) {
+      // Agrupa por usuário
+      const byUser: Record<string, any[]> = {};
+      data.forEach(post => {
+        if (!byUser[post.user_id]) byUser[post.user_id] = [];
+        byUser[post.user_id].push(post);
+      });
+      
+      // Intercala posts: 1 de cada usuário, depois 2º de cada, etc.
+      const result: any[] = [];
+      const userIds = Object.keys(byUser);
+      let hasMore = true;
+      let postIndex = 0;
+      
+      while (hasMore && result.length < 40) {
+        hasMore = false;
+        userIds.forEach(userId => {
+          const posts = byUser[userId];
+          if (posts[postIndex] && result.length < 40) {
+            result.push(posts[postIndex]);
+            hasMore = true;
+          }
+        });
+        postIndex++;
+      }
+      
+      setMoments(result);
+    }
+    setLoading(false);
   };
 
   const timeAgo = (date: string) => { const diff = Math.floor((Date.now() - new Date(date).getTime()) / 1000); if (diff < 60) return `${diff}s`; if (diff < 3600) return `${Math.floor(diff / 60)}min`; if (diff < 86400) return `${Math.floor(diff / 3600)}h`; return `${Math.floor(diff / 86400)}d`; };
@@ -99,6 +132,7 @@ export default function MomentsPage() {
           <Link href="/moments" className={`p-2 ${pathname === '/moments' ? 'text-gray-900' : 'text-gray-400'}`}>
             <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={pathname === '/moments' ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="16" rx="4"/><circle cx="12" cy="13" r="3"/><circle cx="18" cy="9" r="1.5"/><path d="M8 5V3h8v2"/></svg>
           </Link>
+          <Link href="/ranking" className={`p-2 ${pathname === '/ranking' ? 'text-gray-900' : 'text-gray-400'}`}><Trophy className="w-6 h-6" strokeWidth={pathname === '/ranking' ? 2.5 : 2} /></Link>
           <Link href="/explorar" className={`p-2 ${pathname === '/explorar' ? 'text-gray-900' : 'text-gray-400'}`}><Search className="w-6 h-6" strokeWidth={pathname === '/explorar' ? 2.5 : 2} /></Link>
         </div>
       </div>

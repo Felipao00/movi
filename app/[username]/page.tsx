@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { getCurrentUser } from '@/lib/auth';
 import { Container } from '@/components/ui/Container';
+import { ProfilePrivateLock } from '@/components/ProfilePrivateLock'; 
 import { Camera, ArrowLeft, Settings, Grid3X3, Home, Search, Heart, X, Shield, MoreHorizontal, Pin, Trash2, Edit3, Trophy } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -34,11 +35,14 @@ export default function PublicProfilePage() {
   const { username } = useParams();
   const router = useRouter();
   const pathname = usePathname();
+  
   const [profile, setProfile] = useState<any>(null);
   const [photos, setPhotos] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true);
+  
   const [isOwner, setIsOwner] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [followStatus, setFollowStatus] = useState<string | null>(null); // 'aprovado', 'pendente' ou null
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
   const [selectedPhoto, setSelectedPhoto] = useState<any>(null);
@@ -55,22 +59,71 @@ export default function PublicProfilePage() {
   const [pullDistance, setPullDistance] = useState(0);
   const touchStartY = React.useRef(0);
 
-  useEffect(() => { loadProfile(); }, [username]);
+  useEffect(() => {
+    const load = async () => {
+      setInitialLoad(true);
+      await loadProfile();
+      setInitialLoad(false);
+    };
+    load();
+  }, [username]);
+
   useEffect(() => { const closeMenu = () => setMenuPhoto(null); if (menuPhoto) { document.addEventListener('click', closeMenu); return () => document.removeEventListener('click', closeMenu); } }, [menuPhoto]);
 
   const loadProfile = async () => {
     const cleanUsername = decodeURIComponent(String(username)).replace('@', '');
     const { data: profileData } = await supabase.from('profiles').select('*').eq('username', cleanUsername).single();
+    
     if (profileData) {
       setProfile(profileData);
-      const { data: photosData } = await supabase.from('photos').select('*').eq('user_id', profileData.id).order('pinned', { ascending: false }).order('created_at', { ascending: false });
+      
+      const { data: photosData } = await supabase
+        .from('photos')
+        .select(`
+          *,
+          likes (user_id)
+        `)
+        .eq('user_id', profileData.id)
+        .order('pinned', { ascending: false })
+        .order('created_at', { ascending: false });
+
       setPhotos(photosData || []);
-      if (photosData) { const likesMap: Record<string, number> = {}; const userLikesMap: Record<string, boolean> = {}; for (const photo of photosData) { const { count } = await supabase.from('likes').select('*', { count: 'exact' }).eq('photo_id', photo.id); likesMap[photo.id] = count || 0; const user = await getCurrentUser(); if (user) { const { data: like } = await supabase.from('likes').select('*').eq('user_id', user.id).eq('photo_id', photo.id).single(); userLikesMap[photo.id] = !!like; } } setLikes(likesMap); setUserLikes(userLikesMap); }
-      const { count: followers } = await supabase.from('follows').select('*', { count: 'exact' }).eq('following_id', profileData.id); setFollowersCount(followers || 0);
-      const { count: following } = await supabase.from('follows').select('*', { count: 'exact' }).eq('follower_id', profileData.id); setFollowingCount(following || 0);
-      const user = await getCurrentUser(); if (user?.id === profileData.id) setIsOwner(true); else if (user) { const { data: follow } = await supabase.from('follows').select('*').eq('follower_id', user.id).eq('following_id', profileData.id).single(); setIsFollowing(!!follow); }
+      
+      if (photosData) {
+        const likesMap: Record<string, number> = {};
+        const userLikesMap: Record<string, boolean> = {};
+        const user = await getCurrentUser();
+
+        photosData.forEach((photo: any) => {
+          const photoLikes = photo.likes || [];
+          likesMap[photo.id] = photoLikes.length;
+          userLikesMap[photo.id] = user ? photoLikes.some((l: any) => l.user_id === user.id) : false;
+        });
+
+        setLikes(likesMap);
+        setUserLikes(userLikesMap);
+
+        if (user?.id === profileData.id) {
+          setIsOwner(true);
+        } else if (user) {
+          const { data: follow } = await supabase.from('follows').select('*').eq('follower_id', user.id).eq('following_id', profileData.id).single();
+          
+          if (follow) {
+            setFollowStatus(follow.status);
+            setIsFollowing(follow.status === 'aprovado');
+          } else {
+            setFollowStatus(null);
+            setIsFollowing(false);
+          }
+        }
+      }
+
+      const { count: followers } = await supabase.from('follows').select('*', { count: 'exact' }).eq('following_id', profileData.id).eq('status', 'aprovado'); 
+      setFollowersCount(followers || 0);
+      
+      const { count: following } = await supabase.from('follows').select('*', { count: 'exact' }).eq('follower_id', profileData.id).eq('status', 'aprovado'); 
+      setFollowingCount(following || 0);
     }
-    setLoading(false);
   };
 
   const handleRefresh = async () => { setRefreshing(true); await loadProfile(); setRefreshing(false); };
@@ -78,23 +131,136 @@ export default function PublicProfilePage() {
   const handleTouchMove = (e: React.TouchEvent) => { if (touchStartY.current > 0) { const distance = e.touches[0].clientY - touchStartY.current; if (distance > 0 && distance < 100) setPullDistance(distance); } };
   const handleTouchEnd = () => { if (pullDistance > 60) handleRefresh(); touchStartY.current = 0; setPullDistance(0); };
 
-  const handleLike = async (photoId: string) => { const user = await getCurrentUser(); if (!user) { router.push('/login'); return; } const isLiked = userLikes[photoId]; if (isLiked) { await supabase.from('likes').delete().eq('user_id', user.id).eq('photo_id', photoId); setLikes(prev => ({ ...prev, [photoId]: Math.max(0, (prev[photoId] || 1) - 1) })); setUserLikes(prev => ({ ...prev, [photoId]: false })); } else { await supabase.from('likes').insert({ user_id: user.id, photo_id: photoId }); setLikes(prev => ({ ...prev, [photoId]: (prev[photoId] || 0) + 1 })); setUserLikes(prev => ({ ...prev, [photoId]: true })); if (user.id !== profile.id) { await supabase.from('notifications').insert({ user_id: profile.id, from_user_id: user.id, type: 'like', photo_id: photoId }); } } };
-  const handleFollow = async () => { const user = await getCurrentUser(); if (!user) { router.push('/login'); return; } if (isFollowing) { await supabase.from('follows').delete().eq('follower_id', user.id).eq('following_id', profile.id); setIsFollowing(false); setFollowersCount(followersCount - 1); } else { await supabase.from('follows').insert({ follower_id: user.id, following_id: profile.id }); setIsFollowing(true); setFollowersCount(followersCount + 1); await supabase.from('notifications').insert({ user_id: profile.id, from_user_id: user.id, type: 'follow' }); } };
+  const handleLike = async (photoId: string) => { 
+    const user = await getCurrentUser(); 
+    if (!user) { router.push('/login'); return; } 
+    const isLiked = userLikes[photoId]; 
+    
+    if (isLiked) { 
+      setLikes(prev => ({ ...prev, [photoId]: Math.max(0, (prev[photoId] || 1) - 1) })); 
+      setUserLikes(prev => ({ ...prev, [photoId]: false })); 
+      await supabase.from('likes').delete().eq('user_id', user.id).eq('photo_id', photoId); 
+    } else { 
+      setLikes(prev => ({ ...prev, [photoId]: (prev[photoId] || 0) + 1 })); 
+      setUserLikes(prev => ({ ...prev, [photoId]: true })); 
+      await supabase.from('likes').insert({ user_id: user.id, photo_id: photoId }); 
+      if (user.id !== profile.id) { 
+        await supabase.from('notifications').insert({ user_id: profile.id, from_user_id: user.id, type: 'like', photo_id: photoId }); 
+      } 
+    } 
+  };
+
+  const handleFollowAction = async () => { 
+    const user = await getCurrentUser(); 
+    if (!user) { router.push('/login'); return; } 
+    
+    if (followStatus) { 
+      // Remove a relação (deixar de seguir ou cancelar solicitação pendente)
+      await supabase.from('follows').delete().eq('follower_id', user.id).eq('following_id', profile.id); 
+      setFollowStatus(null);
+      if (isFollowing) {
+        setIsFollowing(false); 
+        setFollowersCount(Math.max(0, followersCount - 1)); 
+      }
+    } else { 
+      // Cria a solicitação ou segue direto dependendo da privacidade do perfil
+      const initialStatus = profile.is_private ? 'pendente' : 'aprovado';
+      await supabase.from('follows').insert({ follower_id: user.id, following_id: profile.id, status: initialStatus }); 
+      
+      setFollowStatus(initialStatus);
+      if (initialStatus === 'aprovado') { 
+        setIsFollowing(true); 
+        setFollowersCount(followersCount + 1); 
+        await supabase.from('notifications').insert({ user_id: profile.id, from_user_id: user.id, type: 'follow' }); 
+      } else {
+        // Notificação de solicitação de amizade/seguida pendente
+        await supabase.from('notifications').insert({ user_id: profile.id, from_user_id: user.id, type: 'solicitacao_seguir' });
+      }
+    } 
+  };
+
   const handlePin = async (photo: any) => { await supabase.from('photos').update({ pinned: !photo.pinned }).eq('id', photo.id); setMenuPhoto(null); loadProfile(); };
   const handleDelete = (photo: any) => { setPhotoToDelete(photo); setMenuPhoto(null); setShowDeleteConfirm(true); };
   const confirmDelete = async () => { if (photoToDelete) { await supabase.from('photos').delete().eq('id', photoToDelete.id); setShowDeleteConfirm(false); setPhotoToDelete(null); setSelectedPhoto(null); loadProfile(); } };
   const handleEdit = (photo: any) => { setEditTitle(photo.title || ''); setMenuPhoto(null); setSelectedPhoto(photo); setShowEditModal(true); };
   const saveEdit = async () => { if (selectedPhoto) { await supabase.from('photos').update({ title: editTitle }).eq('id', selectedPhoto.id); setShowEditModal(false); setSelectedPhoto({ ...selectedPhoto, title: editTitle }); loadProfile(); } };
 
-  if (loading) return (<div className="min-h-screen bg-[#FAFAFA] flex items-center justify-center"><div className="w-8 h-8 border-2 border-gray-200 border-t-gray-800 rounded-full animate-spin" /></div>);
+  if (initialLoad) {
+    return (
+      <div className="min-h-screen bg-[#FAFAFA]">
+        <header className="sticky top-0 z-20 bg-[#FAFAFA]/90 backdrop-blur-xl border-b border-gray-200">
+          <Container>
+            <div className="flex items-center justify-between h-14">
+              <div className="w-8 h-8 rounded-full bg-gray-200 animate-pulse" />
+              <div className="h-5 w-24 bg-gray-200 rounded-md animate-pulse" />
+              <div className="w-8 h-8 rounded-full bg-gray-200 animate-pulse" />
+            </div>
+          </Container>
+        </header>
+
+        <main className="pb-20">
+          <Container size="small">
+            <div className="py-8 text-center flex flex-col items-center animate-pulse">
+              <div className="w-24 h-24 rounded-full bg-gray-200 mb-4" />
+              <div className="h-6 w-36 bg-gray-200 rounded-md mb-3" />
+              <div className="h-4 w-48 bg-gray-200 rounded-md mb-2" />
+              <div className="h-4 w-32 bg-gray-200 rounded-md mb-6" />
+              <div className="flex items-center justify-center gap-8 mb-6">
+                <div className="flex flex-col items-center gap-1"><div className="h-5 w-6 bg-gray-200 rounded" /><div className="h-3 w-10 bg-gray-200 rounded" /></div>
+                <div className="flex flex-col items-center gap-1"><div className="h-5 w-6 bg-gray-200 rounded" /><div className="h-3 w-14 bg-gray-200 rounded" /></div>
+                <div className="flex flex-col items-center gap-1"><div className="h-5 w-6 bg-gray-200 rounded" /><div className="h-3 w-12 bg-gray-200 rounded" /></div>
+              </div>
+              <div className="h-9 w-32 bg-gray-200 rounded-lg" />
+            </div>
+          </Container>
+        </main>
+      </div>
+    );
+  }
+
   if (!profile) return (<div className="min-h-screen bg-[#FAFAFA] flex items-center justify-center"><div className="text-center"><Camera className="w-16 h-16 text-gray-300 mx-auto mb-4" /><h1 className="text-xl font-display text-gray-900 mb-2">Usuário não encontrado</h1><Link href="/" className="text-gray-500 hover:text-gray-900 text-sm">Voltar</Link></div></div>);
 
   const activeFrame = profile?.active_frame;
   const frameConfig = activeFrame ? framesConfig[activeFrame] : null;
+  const isProfileBlocked = profile.is_private && !isOwner && !isFollowing;
 
   return (
     <div className="min-h-screen bg-[#FAFAFA]" onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
-      <header className="sticky top-0 z-20 bg-[#FAFAFA]/90 backdrop-blur-xl border-b border-gray-200"><Container><div className="flex items-center justify-between h-14"><button onClick={() => router.push('/')} className="p-2 -ml-2 text-gray-500 hover:text-gray-900"><ArrowLeft className="w-5 h-5" /></button><span className="text-base font-medium text-gray-900">@{profile.username}</span>{isOwner ? <Link href="/dashboard/configuracoes" className="p-2 text-gray-500 hover:text-gray-900"><Settings className="w-4 h-4" /></Link> : <div className="w-8" />}</div></Container></header>
+      <header className="sticky top-0 z-20 bg-[#FAFAFA]/90 backdrop-blur-xl border-b border-gray-200">
+        <Container>
+          <div className="flex items-center justify-between h-14">
+            <button onClick={() => router.push('/')} className="p-2 -ml-2 text-gray-500 hover:text-gray-900">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            
+            <div className="flex items-center gap-1">
+              <span className="text-base font-medium text-gray-900">@{profile.username}</span>
+              {profile.is_private && (
+                <svg 
+                  className="w-4 h-4 text-gray-400 shrink-0 select-none" 
+                  viewBox="0 0 24 24" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2.5" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round"
+                >
+                  <rect x="5" y="9" width="14" height="13" rx="2" />
+                  <path d="M8 9V6a4 4 0 0 1 8 0v3" />
+                </svg>
+              )}
+            </div>
+
+            {isOwner ? (
+              <Link href="/dashboard/configuracoes" className="p-2 text-gray-500 hover:text-gray-900">
+                <Settings className="w-4 h-4" />
+              </Link>
+            ) : (
+              <div className="w-8" />
+            )}
+          </div>
+        </Container>
+      </header>
 
       {pullDistance > 30 && (<div className="fixed top-16 left-1/2 -translate-x-1/2 z-30"><div className="w-8 h-8 border-2 border-gray-300 border-t-gray-800 rounded-full animate-spin" style={{ opacity: Math.min(pullDistance / 60, 1) }} /></div>)}
       {refreshing && (<div className="fixed top-16 left-1/2 -translate-x-1/2 z-30"><div className="w-8 h-8 border-2 border-gray-300 border-t-gray-800 rounded-full animate-spin" /></div>)}
@@ -116,6 +282,7 @@ export default function PublicProfilePage() {
 
             <div className="flex items-center justify-center gap-1.5 mb-1">
               <h1 className="text-xl font-bold text-gray-900">{profile.full_name}</h1>
+
               {profile.verified && profile.username === 'lipe' ? (
                 <button onClick={() => setShowVerifiedInfo(true)} className="inline-flex items-center justify-center">
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none">
@@ -135,14 +302,72 @@ export default function PublicProfilePage() {
               <Link href={`/${profile.username}/seguidores`} className="text-center hover:opacity-80 transition-opacity"><p className="text-lg font-bold text-gray-900">{followersCount}</p><p className="text-gray-500 text-xs">conectados</p></Link>
               <Link href={`/${profile.username}/seguindo`} className="text-center hover:opacity-80 transition-opacity"><p className="text-lg font-bold text-gray-900">{followingCount}</p><p className="text-gray-500 text-xs">seguindo</p></Link>
             </div>
-            {isOwner ? (
-              <div className="flex gap-2 justify-center"><Link href="/dashboard/perfil?from=profile" className="inline-flex px-5 py-2 rounded-lg bg-gray-100 border border-gray-200 text-gray-900 text-sm font-medium">Editar perfil</Link><Link href="/dashboard/insights" className="inline-flex px-5 py-2 rounded-lg bg-gray-100 border border-gray-200 text-gray-900 text-sm font-medium">Insights</Link></div>
-            ) : (
-              <button onClick={handleFollow} className={`inline-flex px-8 py-2 rounded-lg text-sm font-medium transition-all ${isFollowing ? 'bg-gray-100 border border-gray-200 text-gray-900' : 'bg-gray-900 text-white'}`}>{isFollowing ? 'Seguindo' : 'Seguir'}</button>
-            )}
+            
+            {/* BOTÃO DE SOLICITAR OU SEGUIR NO LUGAR CERTO */}
+            <div className="flex justify-center w-full max-w-xs px-4 mx-auto">
+              {isOwner ? (
+                <div className="flex gap-2 w-full justify-center">
+                  <Link href="/dashboard/perfil?from=profile" className="flex-1 py-2 rounded-lg bg-gray-100 border border-gray-200 text-gray-900 text-sm font-semibold text-center">
+                    Editar perfil
+                  </Link>
+                  <Link href="/dashboard/insights" className="flex-1 py-2 rounded-lg bg-gray-100 border border-gray-200 text-gray-900 text-sm font-semibold text-center">
+                    Insights
+                  </Link>
+                </div>
+              ) : (
+                <div className="w-full flex justify-center">
+                  {profile.is_private && !isFollowing ? (
+                    /* Botão dinâmico de Solicitar ou Pendente no topo */
+                    <button
+                      onClick={handleFollowAction}
+                      className={`w-full max-w-[200px] py-2 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                        followStatus === 'pendente' 
+                          ? 'bg-gray-100 border border-gray-200 text-gray-500' 
+                          : 'bg-gray-900 text-white hover:bg-gray-800'
+                      }`}
+                    >
+                      {followStatus === 'pendente' ? (
+                        <>
+                          <svg className="w-4 h-4 text-gray-500 animate-pulse" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <span>Pendente</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                            <circle cx="9" cy="7" r="4" />
+                            <line x1="19" y1="8" x2="19" y2="14" />
+                            <line x1="22" y1="11" x2="16" y2="11" />
+                          </svg>
+                          <span>Solicitar</span>
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    /* Botão Seguir Normal (para perfis públicos ou seguidos aprovados) */
+                    <button 
+                      onClick={handleFollowAction} 
+                      className={`w-full max-w-[200px] py-2 rounded-lg text-sm font-semibold transition-all ${
+                        isFollowing 
+                          ? 'bg-gray-100 border border-gray-200 text-gray-900' 
+                          : 'bg-gray-900 text-white hover:bg-gray-800'
+                      }`}
+                    >
+                      {isFollowing ? 'Seguindo' : 'Seguir'}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
-          {photos.length === 0 ? (<div className="text-center py-16"><Grid3X3 className="w-12 h-12 text-gray-300 mx-auto mb-3" /><p className="text-gray-500">Nenhuma foto ainda</p></div>) : (
+          {isProfileBlocked ? (
+            <ProfilePrivateLock username={profile.username} />
+          ) : photos.length === 0 ? (
+            <div className="text-center py-16"><Grid3X3 className="w-12 h-12 text-gray-300 mx-auto mb-3" /><p className="text-gray-500">Nenhuma foto ainda</p></div>
+          ) : (
             <div className="columns-2 gap-2 space-y-2">
               {photos.map((photo) => (
                 <div key={photo.id} className="break-inside-avoid relative group">
@@ -170,7 +395,7 @@ export default function PublicProfilePage() {
       <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#FAFAFA] border-t border-gray-200">
         <div className="flex items-center justify-around py-2.5">
           <Link href="/" className={`p-2 ${pathname === '/' ? 'text-gray-900' : 'text-gray-400'}`}><Home className="w-6 h-6" strokeWidth={pathname === '/' ? 2.5 : 2} /></Link>
-          <Link href="/moments" className={`p-2 ${pathname === '/moments' ? 'text-gray-900' : 'text-gray-400'}`}><svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={pathname === '/moments' ? 2.5 : 2} strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="16" rx="4"/><circle cx="12" cy="13" r="3"/><circle cx="18" cy="9" r="1.5"/><path d="M8 5V3h8v2"/></svg></Link>
+          <Link href="/moments" className={`p-2 ${pathname === '/moments' ? 'text-gray-900' : 'text-gray-400'}`}><svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="16" rx="4"/><circle cx="12" cy="13" r="3"/><circle cx="18" cy="9" r="1.5"/><path d="M8 5V3h8v2"/></svg></Link>
           <Link href="/ranking" className={`p-2 ${pathname === '/ranking' ? 'text-gray-900' : 'text-gray-400'}`}><Trophy className="w-6 h-6" strokeWidth={pathname === '/ranking' ? 2.5 : 2} /></Link>
           <Link href="/explorar" className={`p-2 ${pathname === '/explorar' ? 'text-gray-900' : 'text-gray-400'}`}><Search className="w-6 h-6" strokeWidth={pathname === '/explorar' ? 2.5 : 2} /></Link>
         </div>

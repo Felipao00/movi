@@ -12,8 +12,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 export default function HomePage() {
   const pathname = usePathname();
   const [photos, setPhotos] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [checking, setChecking] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [selectedPhoto, setSelectedPhoto] = useState<any>(null);
@@ -29,37 +28,161 @@ export default function HomePage() {
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => { initApp(); }, []);
-  useEffect(() => { if (currentUser && photos.length > 0) loadLikes(); }, [currentUser, photos]);
-  useEffect(() => { if (currentUser) loadUnreadCount(); }, [currentUser]);
 
-  const initApp = async () => { setChecking(true); await checkUser(); await loadFeed(); setChecking(false); };
-  const loadUnreadCount = async () => { if (!currentUser) return; const { count } = await supabase.from('notifications').select('*', { count: 'exact' }).eq('user_id', currentUser.id).eq('read', false); setUnreadCount(count || 0); };
+  const initApp = async () => {
+    setInitialLoad(true);
+    // 1. Primeiro descobre quem é o usuário e suas relações (rápido)
+    const user = await checkUser();
+    // 2. Carrega o feed passando o usuário atual para resolver as curtidas em apenas 2 queries totais!
+    await loadFeed(user);
+    setInitialLoad(false);
+  };
+
+  const loadUnreadCount = async (userId: string) => {
+    const { count } = await supabase
+      .from('notifications')
+      .select('*', { count: 'exact' })
+      .eq('user_id', userId)
+      .eq('read', false);
+    setUnreadCount(count || 0);
+  };
 
   const checkUser = async () => {
     const user = await getCurrentUser();
     if (user) {
       setCurrentUser(user);
+      loadUnreadCount(user.id);
+      
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
       setUserProfile(profile);
+      
       const { data: follows } = await supabase.from('follows').select('following_id').eq('follower_id', user.id);
-      if (follows) setFollowingUsers(new Set(follows.map(f => f.following_id)));
-      if (profile?.onboarding_done && typeof window !== 'undefined') { if (!localStorage.getItem('movi_tip_shown')) { setShowTip(true); localStorage.setItem('movi_tip_shown', 'true'); } }
+      if (follows) {
+        setFollowingUsers(new Set(follows.map(f => f.following_id)));
+      }
+      
+      if (profile?.onboarding_done && typeof window !== 'undefined') {
+        if (!localStorage.getItem('movi_tip_shown')) {
+          setShowTip(true);
+          localStorage.setItem('movi_tip_shown', 'true');
+        }
+      }
+      return user;
+    }
+    return null;
+  };
+
+  const loadFeed = async (user: any) => {
+    try {
+      // Query ultra otimizada: busca fotos, perfis e já traz o número total de curtidas diretamente!
+      const { data, error } = await supabase
+        .from('photos')
+        .select(`
+          id, 
+          title, 
+          image_url, 
+          created_at, 
+          user_id, 
+          profiles:user_id (id, username, full_name, avatar_url),
+          likes (user_id)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (error) throw error;
+
+      if (data) {
+        const likesMap: Record<string, number> = {};
+        const userLikesMap: Record<string, boolean> = {};
+
+        // Mapeia todas as curtidas em memória de forma instantânea, sem fazer novas requisições!
+        const photosWithLikes = data.map((photo: any) => {
+          const photoLikes = photo.likes || [];
+          const likesCount = photoLikes.length;
+          
+          likesMap[photo.id] = likesCount;
+          userLikesMap[photo.id] = user ? photoLikes.some((l: any) => l.user_id === user.id) : false;
+
+          return {
+            ...photo,
+            likes_count: likesCount
+          };
+        });
+
+        // Atualiza os estados de curtidas instantaneamente
+        setLikes(likesMap);
+        setUserLikes(userLikesMap);
+
+        // Algoritmo de ordenação personalizado
+        const sorted = photosWithLikes.sort((a, b) => {
+          const now = Date.now();
+          const dayAgo = now - 86400000;
+          const scoreA = (followingUsers.has(a.user_id) ? 15 : 0) + (a.likes_count * 2) + (new Date(a.created_at).getTime() > dayAgo ? 2 : 0) + Math.random() * 2;
+          const scoreB = (followingUsers.has(b.user_id) ? 15 : 0) + (b.likes_count * 2) + (new Date(b.created_at).getTime() > dayAgo ? 2 : 0) + Math.random() * 2;
+          return scoreB - scoreA;
+        });
+
+        setPhotos(sorted.slice(0, 50));
+      }
+    } catch (err) {
+      console.error('Erro ao carregar o feed:', err);
     }
   };
 
-  const loadFeed = async () => {
-    try {
-      const { data } = await supabase.from('photos').select(`id, title, image_url, created_at, user_id, profiles:user_id (id, username, full_name, avatar_url)`).order('created_at', { ascending: false }).limit(100);
-      if (data) { const photosWithLikes = await Promise.all(data.map(async (photo) => { const { count } = await supabase.from('likes').select('*', { count: 'exact' }).eq('photo_id', photo.id); return { ...photo, likes_count: count || 0 }; })); const sorted = photosWithLikes.sort((a, b) => { const now = Date.now(); const dayAgo = now - 86400000; const scoreA = (followingUsers.has(a.user_id) ? 15 : 0) + (a.likes_count * 2) + (new Date(a.created_at).getTime() > dayAgo ? 2 : 0) + Math.random() * 2; const scoreB = (followingUsers.has(b.user_id) ? 15 : 0) + (b.likes_count * 2) + (new Date(b.created_at).getTime() > dayAgo ? 2 : 0) + Math.random() * 2; return scoreB - scoreA; }); setPhotos(sorted.slice(0, 50)); }
-    } catch (err) { console.error('Erro:', err); } finally { setLoading(false); }
+  const handleLike = async (photoId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!currentUser) return;
+    const isLiked = userLikes[photoId];
+    
+    if (isLiked) {
+      // Otimização otimista (UI atualiza na hora)
+      setLikes(prev => ({ ...prev, [photoId]: Math.max(0, (prev[photoId] || 1) - 1) }));
+      setUserLikes(prev => ({ ...prev, [photoId]: false }));
+
+      await supabase.from('likes').delete().eq('user_id', currentUser.id).eq('photo_id', photoId);
+    } else {
+      // Otimização otimista (UI atualiza na hora)
+      setLikes(prev => ({ ...prev, [photoId]: (prev[photoId] || 0) + 1 }));
+      setUserLikes(prev => ({ ...prev, [photoId]: true }));
+
+      await supabase.from('likes').insert({ user_id: currentUser.id, photo_id: photoId });
+      
+      const photo = photos.find(p => p.id === photoId);
+      if (photo && currentUser.id !== photo.user_id) {
+        await supabase.from('notifications').insert({ user_id: photo.user_id, from_user_id: currentUser.id, type: 'like', photo_id: photoId });
+      }
+    }
   };
 
-  const loadLikes = async () => { if (!currentUser) return; const likesMap: Record<string, number> = {}; const userLikesMap: Record<string, boolean> = {}; for (const photo of photos) { const { count } = await supabase.from('likes').select('*', { count: 'exact' }).eq('photo_id', photo.id); likesMap[photo.id] = count || 0; const { data: like } = await supabase.from('likes').select('*').eq('user_id', currentUser.id).eq('photo_id', photo.id).single(); userLikesMap[photo.id] = !!like; } setLikes(likesMap); setUserLikes(userLikesMap); };
-  const handleLike = async (photoId: string, e?: React.MouseEvent) => { if (e) e.stopPropagation(); if (!currentUser) return; const isLiked = userLikes[photoId]; if (isLiked) { await supabase.from('likes').delete().eq('user_id', currentUser.id).eq('photo_id', photoId); setLikes(prev => ({ ...prev, [photoId]: Math.max(0, (prev[photoId] || 1) - 1) })); setUserLikes(prev => ({ ...prev, [photoId]: false })); } else { await supabase.from('likes').insert({ user_id: currentUser.id, photo_id: photoId }); setLikes(prev => ({ ...prev, [photoId]: (prev[photoId] || 0) + 1 })); setUserLikes(prev => ({ ...prev, [photoId]: true })); const photo = photos.find(p => p.id === photoId); if (photo && currentUser.id !== photo.user_id) { await supabase.from('notifications').insert({ user_id: photo.user_id, from_user_id: currentUser.id, type: 'like', photo_id: photoId }); } } };
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) { setUploadFile(file); const reader = new FileReader(); reader.onload = (ev) => setUploadPreview(ev.target?.result as string); reader.readAsDataURL(file); } };
-  const handlePublish = async () => { if (!currentUser) return; if (!uploadFile && !uploadTitle.trim()) return; setUploading(true); let imageUrl = ''; if (uploadFile) { const fileName = `${currentUser.id}/${Date.now()}-${uploadFile.name}`; await supabase.storage.from('uploads').upload(fileName, uploadFile); const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(fileName); imageUrl = urlData.publicUrl; } await supabase.from('photos').insert({ user_id: currentUser.id, title: uploadTitle.trim(), image_url: imageUrl || '' }); setUploadFile(null); setUploadPreview(null); setUploadTitle(''); setUploading(false); setShowUpload(false); loadFeed(); };
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setUploadFile(file);
+      const reader = new FileReader();
+      reader.onload = (ev) => setUploadPreview(ev.target?.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
 
-  if (checking) return (<div className="min-h-screen bg-[#FAFAFA] flex items-center justify-center"><div className="w-8 h-8 border-2 border-gray-200 border-t-gray-800 rounded-full animate-spin" /></div>);
+  const handlePublish = async () => {
+    if (!currentUser) return;
+    if (!uploadFile && !uploadTitle.trim()) return;
+    setUploading(true);
+    let imageUrl = '';
+    if (uploadFile) {
+      const fileName = `${currentUser.id}/${Date.now()}-${uploadFile.name}`;
+      await supabase.storage.from('uploads').upload(fileName, uploadFile);
+      const { data: urlData } = supabase.storage.from('uploads').getPublicUrl(fileName);
+      imageUrl = urlData.publicUrl;
+    }
+    await supabase.from('photos').insert({ user_id: currentUser.id, title: uploadTitle.trim(), image_url: imageUrl || '' });
+    setUploadFile(null);
+    setUploadPreview(null);
+    setUploadTitle('');
+    setUploading(false);
+    setShowUpload(false);
+    loadFeed(currentUser);
+  };
 
   if (!currentUser) {
     return (
@@ -96,7 +219,18 @@ export default function HomePage() {
 
       <main className="pt-16 pb-20">
         <Container>
-          {loading ? (<div className="flex items-center justify-center min-h-[60vh]"><div className="w-8 h-8 border-2 border-gray-200 border-t-gray-800 rounded-full animate-spin" /></div>) : photos.length === 0 ? (<div className="flex items-center justify-center min-h-[60vh]"><div className="text-center"><Camera className="w-16 h-16 text-gray-300 mx-auto mb-4" /><h1 className="text-2xl font-display text-gray-900 mb-2">Nenhuma foto ainda</h1><p className="text-gray-500 mb-6">Seja o primeiro a compartilhar</p></div></div>) : (
+          {initialLoad ? (
+            /* SKELETON - Aparece instantaneamente */
+            <div className="columns-2 sm:columns-3 lg:columns-4 gap-2 space-y-2 animate-pulse">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <div key={i} className="break-inside-avoid">
+                  <div className={`rounded-lg bg-gray-200 ${i % 3 === 0 ? 'h-56' : i % 2 === 0 ? 'h-72' : 'h-44'}`} />
+                </div>
+              ))}
+            </div>
+          ) : photos.length === 0 ? (
+            <div className="flex items-center justify-center min-h-[60vh]"><div className="text-center"><Camera className="w-16 h-16 text-gray-300 mx-auto mb-4" /><h1 className="text-2xl font-display text-gray-900 mb-2">Nenhuma foto ainda</h1><p className="text-gray-500 mb-6">Seja o primeiro a compartilhar</p></div></div>
+          ) : (
             <div className="columns-2 sm:columns-3 lg:columns-4 gap-2 space-y-2">
               {photos.map((photo) => (
                 <div key={photo.id} className="break-inside-avoid cursor-pointer" onClick={() => setSelectedPhoto(photo)}>
@@ -116,7 +250,6 @@ export default function HomePage() {
 
       <AnimatePresence>{showUpload && (<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] bg-[#FAFAFA] flex flex-col"><div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 flex-shrink-0"><button onClick={() => { setShowUpload(false); setUploadPreview(null); setUploadTitle(''); }} className="p-2 -ml-2 text-gray-500 hover:text-gray-900"><X className="w-5 h-5" /></button><span className="text-base font-semibold text-gray-900">Nova publicação</span><button onClick={handlePublish} disabled={(!uploadFile && !uploadTitle.trim()) || uploading} className="px-4 py-1.5 rounded-full bg-gray-900 text-white text-sm font-medium disabled:opacity-30 transition-all">{uploading ? '...' : 'Publicar'}</button></div><div className="flex-1 flex flex-col"><textarea value={uploadTitle} onChange={(e) => setUploadTitle(e.target.value)} placeholder="O que você quer compartilhar?" className="flex-1 w-full px-5 py-4 bg-transparent text-gray-900 placeholder:text-gray-400 text-lg resize-none focus:outline-none" autoFocus />{uploadPreview && (<div className="relative px-4 pb-4"><div className="relative rounded-2xl overflow-hidden"><img src={uploadPreview} alt="Preview" className="w-full max-h-80 object-cover" /><button onClick={() => { setUploadPreview(null); setUploadFile(null); }} className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center"><X className="w-4 h-4" /></button></div></div>)}</div><div className="flex items-center gap-2 px-4 py-3 border-t border-gray-200 flex-shrink-0"><label className="p-2.5 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all cursor-pointer"><ImagePlus className="w-5 h-5" /><input type="file" accept="image/*" onChange={handleFileSelect} className="hidden" /></label><label className="p-2.5 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all cursor-pointer"><Camera className="w-5 h-5" /><input type="file" accept="image/*" capture="environment" onChange={handleFileSelect} className="hidden" /></label>{!uploadPreview && !uploadTitle.trim() && <p className="text-gray-400 text-xs ml-1">Adicione uma foto ou escreva algo</p>}</div></motion.div>)}</AnimatePresence>
 
-      {/* NAVBAR FIXA - 4 ÍCONES */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#FAFAFA] border-t border-gray-200">
         <div className="flex items-center justify-around py-2.5">
           <Link href="/" className={`p-2 ${pathname === '/' ? 'text-gray-900' : 'text-gray-400'}`}><Home className="w-6 h-6" strokeWidth={pathname === '/' ? 2.5 : 2} /></Link>
